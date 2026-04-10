@@ -1,2 +1,2 @@
-# memorization_rice_monkey
+# m
 암기 앱 귀찮아요. 태블릿으로 쓰려고 만들었어요.

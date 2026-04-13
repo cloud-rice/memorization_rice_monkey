@@ -38,14 +38,18 @@
   .question { font-size: 24px; font-weight: bold; margin-bottom: 30px; word-break: keep-all; }
   .options { display: flex; flex-direction: column; gap: 10px; }
   .option-btn { padding: 15px; font-size: 16px; border: 1px solid #ddd; border-radius: 8px; background: #fff; cursor: pointer; transition: 0.2s; }
+  .kb-hint { color: #aaa; font-size: 0.8em; font-weight: normal; }
   
   /* 단답형 입력창 */
   .short-answer-input { width: 100%; padding: 15px; font-size: 18px; border: 2px solid #ddd; border-radius: 8px; box-sizing: border-box; text-align: center; margin-bottom: 10px; outline: none; }
   .submit-btn { width: 100%; padding: 15px; font-size: 16px; border: none; border-radius: 8px; background: #4a90e2; color: white; font-weight: bold; cursor: pointer; }
 
-  /* 피드백 영역 (오답 시 노출) */
+  /* 피드백 영역 */
   .feedback-area { margin-top: 20px; padding: 15px; border-radius: 8px; display: none; text-align: left; }
   .feedback-area.show { display: block; background: #fff3f3; border: 1px solid #facccc; }
+  .feedback-correct { background: #f0fff4; border-color: #c6f6d5 !important; }
+  .feedback-wrong { background: #fff5f5; border-color: #fed7d7 !important; }
+  
   .next-btn { width: 100%; padding: 15px; background: #2c3e50; color: white; border: none; border-radius: 8px; font-weight: bold; margin-top: 15px; cursor: pointer; }
 
   /* 애니메이션 */
@@ -74,7 +78,7 @@
   </div>
 
   <div class="settings-bar" id="settings-bar" style="display:none;">
-    <label style="cursor:pointer;"><input type="checkbox" id="pause-on-wrong" checked> 오답 시 멈춤 및 해설 보기</label>
+    <label style="cursor:pointer;"><input type="checkbox" id="always-show-desc" checked> 정답시에도 해설 보기 </label>
   </div>
 
   <div class="home-area" id="home-area">
@@ -102,11 +106,11 @@
       <div class="options" id="options"></div>
       
       <div class="feedback-area" id="feedback-area">
-        <div style="color:#e74c3c; font-weight:bold; margin-bottom:8px; font-size:18px;">❌ 틀렸습니다!</div>
-        <div style="margin-bottom:5px;">내가 고른 답: <span id="user-wrong-answer" style="color:#e74c3c; font-weight:bold; text-decoration:line-through;"></span></div>
-        <div style="margin-bottom:5px;">실제 정답: <span id="correct-answer" style="color:#2ecc71; font-weight:bold; font-size:1.1em;"></span></div>
+        <div id="feedback-status" style="font-weight:bold; margin-bottom:8px; font-size:18px;"></div>
+        <div id="user-ans-row" style="margin-bottom:5px;">내가 고른 답: <span id="user-wrong-answer" style="font-weight:bold;"></span></div>
+        <div style="margin-bottom:5px;">실제 정답: <span id="correct-answer" style="color:#2ecc71; font-weight:bold;"></span></div>
         <div id="answer-desc" style="font-size:0.9em; color:#666; margin-top:8px; padding-top:8px; border-top:1px dashed #ccc;"></div>
-        <button class="next-btn" onclick="nextStep()">다음 문제로 ▷</button>
+        <button class="next-btn" id="next-btn-el" onclick="nextStep()">다음 (Enter/Space)</button>
       </div>
     </div>
   </div>
@@ -127,7 +131,47 @@ let stats = { correct: 0, wrong: 0 };
 let wrongAnswers = [];
 let allAnswersPool = [];
 let isLocked = false;
+let currentOptions = []; // 키보드 매핑용
 
+// [키보드 이벤트 핸들러]
+window.addEventListener('keydown', (e) => {
+  // 홈 화면이나 결과 화면이면 무시
+  if (document.getElementById('quiz-container').style.display === 'none') return;
+  
+  // 1. 해설 화면이 떠 있는 상태라면 Enter나 Space로 넘기기
+  const feedback = document.getElementById('feedback-area');
+  if (feedback.classList.contains('show')) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      nextStep();
+    }
+    return;
+  }
+
+  // 2. 문제 풀이 중일 때 (단답형 제외 - 단답형은 input 자체 엔터 처리)
+  if (isLocked) return;
+  const tags = currentQuiz.tags || [];
+  if (tags.includes("단답형")) return;
+
+  // OX 모드
+  if (tags.includes("OX") || tags.includes("ox")) {
+    if (e.key === '1' || e.key.toLowerCase() === 'o') selectOption(0);
+    if (e.key === '2' || e.key.toLowerCase() === 'x') selectOption(1);
+  } 
+  // N지선다 모드
+  else {
+    const num = parseInt(e.key);
+    if (num >= 1 && num <= currentOptions.length) {
+      selectOption(num - 1);
+    }
+  }
+});
+
+function selectOption(index) {
+  const btns = document.querySelectorAll('.option-btn');
+  if (btns[index]) btns[index].click();
+}
+  
 // [초기화] index.json 불러오기
 window.onload = () => {
   fetch('data/index.json').then(r => r.json()).then(data => {
@@ -243,7 +287,7 @@ function showQuestion() {
     const input = document.createElement('input');
     input.type = 'text'; input.className = 'short-answer-input'; input.placeholder = '정답 입력';
     const btn = document.createElement('button');
-    btn.className = 'submit-btn'; btn.innerText = '확인';
+    btn.className = 'submit-btn'; btn.innerText = '확인 (Enter)';
     
     input.addEventListener("keypress", (e) => { if (e.key === "Enter") btn.click(); });
     btn.onclick = () => checkAnswer(input.value.trim(), btn);
@@ -253,9 +297,11 @@ function showQuestion() {
   } 
   // OX 모드
   else if (tags.includes("OX") || tags.includes("ox")) {
-    ['O', 'X'].forEach(opt => {
+    currentOptions = ['O', 'X'];
+    currentOptions.forEach((opt, i) => {
       const btn = document.createElement('button');
-      btn.className = 'option-btn'; btn.innerText = opt;
+      btn.className = 'option-btn';
+      btn.innerHTML = `<span>${opt}</span><span class="kb-hint">[${i===0?'O/1':'X/2'}]</span>`;
       btn.onclick = () => checkAnswer(opt, btn);
       options.appendChild(btn);
     });
@@ -266,13 +312,16 @@ function showQuestion() {
     if(tags.includes("이지선다")) count = 2;
     if(tags.includes("삼지선다")) count = 3;
     if(tags.includes("오지선다")) count = 5;
+    if(tags.includes("육지선다")) count = 6;
+    if(tags.includes("칠지선다")) count = 7;
+    if(tags.includes("팔지선다")) count = 8;
+    if(tags.includes("구지선다")) count = 9;
 
     let pool = allAnswersPool.filter(a => a !== q.a).sort(() => Math.random() - 0.5);
-    let choices = [q.a, ...pool.slice(0, count - 1)].sort(() => Math.random() - 0.5);
-
-    choices.forEach(c => {
-      const btn = document.createElement('button');
-      btn.className = 'option-btn'; btn.innerText = c;
+    currentOptions = [q.a, ...pool.slice(0, count - 1)].sort(() => Math.random() - 0.5);
+    currentOptions.forEach((c, i) => {
+      const btn = document.createElement('button'); btn.className = 'option-btn';
+      btn.innerHTML = `<span>${c}</span><span class="kb-hint">[${i+1}]</span>`;
       btn.onclick = () => checkAnswer(c, btn);
       options.appendChild(btn);
     });
@@ -287,29 +336,35 @@ function checkAnswer(ans, targetBtn) {
   
   const q = currentQuiz.questions[currentIndex];
   // 띄어쓰기 무시하고 정답 비교
-  const isCorrect = (ans.replace(/\s+/g, '') === q.a.replace(/\s+/g, ''));
-  const pauseOn = document.getElementById('pause-on-wrong').checked;
+  const isCorrect = (ans.replace(/\s+/g, '').toLowerCase() === q.a.replace(/\s+/g, '').toLowerCase());
+  const alwaysShow = document.getElementById('always-show-desc').checked;
 
   if (isCorrect) {
     targetBtn.classList.add('anim-correct');
     stats.correct++;
-    setTimeout(nextStep, 350);
   } else {
     targetBtn.classList.add('anim-incorrect');
     stats.wrong++;
-    
-    // 핵심! 내가 고른 답을 객체에 함께 저장
     wrongAnswers.push({ ...q, userAnswer: ans });
-    
-    if (pauseOn) {
-      document.getElementById('options').style.display = 'none';
-      document.getElementById('user-wrong-answer').innerText = ans; // 내가 쓴 답 표시
-      document.getElementById('correct-answer').innerText = q.a;    // 실제 정답 표시
-      document.getElementById('answer-desc').innerText = q.desc || "제공된 해설이 없습니다.";
-      document.getElementById('feedback-area').classList.add('show');
-    } else {
-      setTimeout(nextStep, 350);
-    }
+  }
+
+  // 해설 화면 세팅
+  const fArea = document.getElementById('feedback-area');
+  const fStatus = document.getElementById('feedback-status');
+  fArea.className = 'feedback-area show ' + (isCorrect ? 'feedback-correct' : 'feedback-wrong');
+  fStatus.innerText = isCorrect ? '✅ 정답입니다!' : '❌ 틀렸습니다!';
+  fStatus.style.color = isCorrect ? '#2ecc71' : '#e74c3c';
+  
+  document.getElementById('user-ans-row').style.display = isCorrect ? 'none' : 'block';
+  document.getElementById('user-wrong-answer').innerText = ans;
+  document.getElementById('user-wrong-answer').style.textDecoration = 'line-through';
+  document.getElementById('correct-answer').innerText = q.a;
+  document.getElementById('answer-desc').innerText = q.desc || "해설이 없습니다.";
+  
+  if (isCorrect && !alwaysShow) {
+    setTimeout(nextStep, 400); // 정답이고 '항상보기' 꺼져있으면 바로 넘김
+  } else {
+    document.getElementById('options').style.display = 'none'; // 해설 집중 위해 옵션 가림
   }
 }
 

@@ -221,9 +221,21 @@ function convertToJson() {
   let questions = [];
   csvLines.forEach(line => {
     if(!line.trim()) return;
-    const parts = line.split(',');
-    let qObj = { q: parts[0]?.trim() || "", a: parts[1]?.trim() || "" };
-    if(parts[2] && parts[2].trim() !== "") qObj.desc = parts[2].trim();
+
+    //1. 정규식으로 분리, 2. map 돌면서 공백 지우고 양끝 따옴표 벗김
+    const parts = line.split(csvRegex).map(part => {
+      let p = part.trim();
+      // 양끝에 큰따옴표가 있으면 제거 ("a, b, c" -> a, b, c)
+      if (p.startsWith('"') && p.endsWith('"')) {
+        p = p.substring(1, p.length - 1).trim();
+      }
+      // 따옴표 내부의 연속된 따옴표("")를 하나의 따옴표(")로 변환 (표준 CSV 규칙)
+      p = p.replace(/""/g, '"');
+      return p;
+    });
+    
+    let qObj = { q: parts[0] || "", a: parts[1] || "" };
+    if(parts[2] && parts[2] !== "") qObj.desc = parts[2];
     questions.push(qObj);
   });
 

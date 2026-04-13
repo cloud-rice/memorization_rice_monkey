@@ -219,6 +219,8 @@ function convertToJson() {
   const csvLines = document.getElementById('cv-csv').value.trim().split('\n');
   
   let questions = [];
+  const csvRegex = /,(?=(?:(?:[^"]*"){2})*[^"]*$)/;
+  
   csvLines.forEach(line => {
     if(!line.trim()) return;
 
